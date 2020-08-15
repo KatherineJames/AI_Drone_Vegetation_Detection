@@ -2,6 +2,8 @@ from keras import backend as K
 import numpy as np
 import tensorflow as tf
 import cv2
+import random
+
 
 
 im_width = 512
@@ -104,6 +106,23 @@ def weight_map(y,w,t):
        
     
     return np.array(weights)
+
+#used
+
+def adjust_brightness(image):    
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    hsv[:,:,2]=hsv[:,:,2]*random.randrange(30,100,1)/100 
+    out = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)  
+    return out
+
+
+# useful functions (not used)
+def Histogram(frame):
+    image = cv2.cvtColor(frame, cv2.COLOR_BGR2YUV)
+    # equalize the histogram of the Y channel
+    image[:,:,0] = cv2.equalizeHist(image[:,:,0])    
+    image = cv2.cvtColor(image, cv2.COLOR_YUV2BGR)    
+    return image
 
 #--------used in k-fold unet
 
