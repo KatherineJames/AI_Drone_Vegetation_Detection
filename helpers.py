@@ -7,31 +7,9 @@ import cv2
 im_width = 512
 im_height = 512
 
-BCEweights = []
-
 #helper functions needed in both unet.py and kfold_unet.py
 def ronneberg(y_true,y_pred):
     return -tf.reduce_sum(y_true*y_pred,len(y_pred.get_shape())-1)
-
-def weighted_BCE(w):
-    #BINARY CROSS ENTROPY WEIGHTED. EXPECTS W = [W0,W1] WHERE W0 IS BACKGROUND CLASS
-    
-    #weights = K.variable(weights)     
-    #weights = K.expand_dims(weights,3)    
-    def loss(y_true,y_pred):   
-        y_true_inv = 1 - y_true
-        weights = y_true_inv*w[0] + y_true*w[1]              
-            
-        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
-      
-        loss = -y_true * K.log(y_pred) - (1.0 -y_true) * K.log(1.0 - y_pred) #8,512,512,1 (BCE)
-        #loss = soft_dice_loss(y_true,y_pred)
-        
-        loss = loss * weights   #print shape, then determine if we need to sum or not. At this point it is pixel wise.
-        
-                
-        return K.mean(loss) 
-    return loss 
 
 def weighted_BCE_MAP(weights):
     
@@ -51,99 +29,6 @@ def weighted_BCE_MAP(weights):
                 
         return K.mean(loss)
     return loss 
-
-
-def focal_loss(gamma): 
-
-    def loss(y_true,y_pred):  #(https://arxiv.org/abs/1708.02002).        
-              
-        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())   
-        loss = -y_true * K.log(y_pred) * K.pow(1.-y_pred,gamma)    - (1.0 -y_true) * K.log(1.0 - y_pred)*K.pow(y_pred,gamma) # -log(pred) * y_TP - log(1-pred)*y_TN    
-        return K.mean(loss) 
-    return loss
-
- 
-def alpha_focal_loss(w,gamma):   #(https://arxiv.org/abs/1708.02002). 
-    #WEIGHTED. EXPECTS W = [W0,W1] WHERE W0 IS BACKGROUND CLASS
-   
-    def loss(y_true,y_pred):
-        #gamma=2      
-        y_true_inv = 1 - y_true
-        weights = y_true_inv*w[0] + y_true*w[1] 
-            
-        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())   
-        loss = -y_true * K.log(y_pred) * K.pow(1.-y_pred,gamma)    - (1.0 -y_true) * K.log(1.0 - y_pred)*K.pow(y_pred,gamma) # -log(pred) * y_TP - log(1-pred)*y_TN    
-        loss = loss*weights
-        return K.mean(loss) 
-
-    return loss
-
-def soft_dice_loss(y_true,y_pred):
-    return 1 -dice_coeff(y_true,y_pred)
-    #https://www.jeremyjordan.me/semantic-segmentation/#advanced_unet
-
-def iou_loss(y_true,y_pred):
-    return 1 - iou(y_true,y_pred)
-
-def dice_coeff(y_true,y_pred,epsilon=1e-6):
-    '''y_true_f = K.flatten(y_true)
-    y_pred_f = K.flatten(y_pred)
-    intersection = K.sum(y_true_f * y_pred_f)
-    return K.mean(2. * intersection + epsilon / (K.sum(y_true_f) + K.sum(y_pred_f) + epsilon))'''
-    axes = tuple(range(1, len(y_pred.shape)))     
-    numerator = 2. * K.sum(y_pred * y_true, axes)
-    denominator = K.sum(K.square(y_pred) + K.square(y_true), axes) 
-    
-    temp = (numerator*1.0+epsilon)/(denominator+epsilon)    
-    return temp
-    #return K.mean(temp) # average over classes and batch
-
-
-def iou(y_true,y_pred,epsilon=1e-6):
-    axes = tuple(range(1, len(y_pred.shape))) 
-    #print(axes)
-    inter = K.sum(y_pred * y_true, axes)
-    union = K.sum(y_true + y_pred - y_pred*y_true, axes)       
-    temp = (inter*1.0+epsilon)/(union+epsilon)    
-    #return K.mean(temp) # average over classes and batch
-    return temp
-
-def f1(y_true, y_pred):
-    y_pred = K.round(y_pred)
-    tp = K.sum(K.cast(y_true*y_pred, 'float'), axis=0)
-    tn = K.sum(K.cast((1-y_true)*(1-y_pred), 'float'), axis=0)
-    fp = K.sum(K.cast((1-y_true)*y_pred, 'float'), axis=0)
-    fn = K.sum(K.cast(y_true*(1-y_pred), 'float'), axis=0)
-
-    p = tp / (tp + fp + K.epsilon())
-    r = tp / (tp + fn + K.epsilon())
-
-    f1 = 2*p*r / (p+r+K.epsilon())
-    f1 = tf.where(tf.is_nan(f1), tf.zeros_like(f1), f1)
-    return K.mean(f1)
-
-def f1_loss(y_true, y_pred):
-    # From: https://www.kaggle.com/rejpalcz/best-loss-function-for-f1-score-metric
-    tp = K.sum(K.cast(y_true*y_pred, 'float'), axis=0)
-    tn = K.sum(K.cast((1-y_true)*(1-y_pred), 'float'), axis=0)
-    fp = K.sum(K.cast((1-y_true)*y_pred, 'float'), axis=0)
-    fn = K.sum(K.cast(y_true*(1-y_pred), 'float'), axis=0)
-
-    p = tp / (tp + fp + K.epsilon())
-    r = tp / (tp + fn + K.epsilon())
-
-    f1 = 2*p*r / (p+r+K.epsilon())
-    f1 = tf.where(tf.is_nan(f1), tf.zeros_like(f1), f1)
-    return 1 - K.mean(f1)
-
-def precision(y_true,y_pred):
-    y_pred = K.round(y_pred)
-    tp = K.sum(K.cast(y_true*y_pred, 'float'), axis=0)
-    tn = K.sum(K.cast((1-y_true)*(1-y_pred), 'float'), axis=0)
-    fp = K.sum(K.cast((1-y_true)*y_pred, 'float'), axis=0)
-    fn = K.sum(K.cast(y_true*(1-y_pred), 'float'), axis=0)
-    p = tp / (tp + fp + K.epsilon())
-    return K.mean(p)
 
 
 def class_weight_map(y,w,t):
@@ -220,40 +105,81 @@ def weight_map(y,w,t):
     
     return np.array(weights)
 
+#--------used in k-fold unet
+
+def weighted_BCE(w):
+    #BINARY CROSS ENTROPY WEIGHTED. EXPECTS W = [W0,W1] WHERE W0 IS BACKGROUND CLASS
+ 
+    def loss(y_true,y_pred):   
+        y_true_inv = 1 - y_true
+        weights = y_true_inv*w[0] + y_true*w[1]              
+            
+        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
+      
+        loss = -y_true * K.log(y_pred) - (1.0 -y_true) * K.log(1.0 - y_pred) 
+       
+        
+        loss = loss * weights   #At this point it is pixel wise.       
+                
+        return K.mean(loss) 
+    return loss 
    
-'''def f1(y_true, y_pred):
-    epsilon=1e-6
+def focal_loss(gamma): 
+    #(https://arxiv.org/abs/1708.02002). 
+
+    def loss(y_true,y_pred):         
+              
+        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())   
+        loss = -y_true * K.log(y_pred) * K.pow(1.-y_pred,gamma)    - (1.0 -y_true) * K.log(1.0 - y_pred)*K.pow(y_pred,gamma) # -log(pred) * y_TP - log(1-pred)*y_TN    
+        return K.mean(loss) 
+    return loss
+
+def alpha_focal_loss(w,gamma):   
+    #(https://arxiv.org/abs/1708.02002). 
+    #WEIGHTED. EXPECTS W = [W0,W1] WHERE W0 IS BACKGROUND CLASS
    
-    #y_pred = np.round(y_pred)
-    #print(y_true.shape)
-    tp = np.sum(y_true*y_pred, axis=(1,2))
+    def loss(y_true,y_pred):
+         
+        y_true_inv = 1 - y_true
+        weights = y_true_inv*w[0] + y_true*w[1] 
+            
+        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())   
+        loss = -y_true * K.log(y_pred) * K.pow(1.-y_pred,gamma) - (1.0 -y_true) * K.log(1.0 - y_pred)*K.pow(y_pred,gamma)  
+        loss = loss*weights
+        return K.mean(loss) 
+
+    return loss
+
+def soft_dice_loss(y_true,y_pred):
+    return 1 -dice_coeff(y_true,y_pred)
+    #https://www.jeremyjordan.me/semantic-segmentation/#advanced_unet
+
+def dice_coeff(y_true,y_pred,epsilon=1e-6):   
+    axes = tuple(range(1, len(y_pred.shape)))     
+    numerator = 2. * K.sum(y_pred * y_true, axes)
+    denominator = K.sum(K.square(y_pred) + K.square(y_true), axes) 
     
-    tn = np.sum((1-y_true)*(1-y_pred), axis=(1,2))
-    fp = np.sum((1-y_true)*y_pred, axis=(1,2))
-    fn = np.sum(y_true*(1-y_pred), axis=(1,2))
+    temp = (numerator*1.0+epsilon)/(denominator+epsilon)    
+    return temp
+    #return K.mean(temp) # average over classes and batch
 
-    p = tp / (tp + fp + epsilon)
-    r = tp / (tp + fn + epsilon)
 
-    f1 = 2*p*r / (p+r+epsilon)
-    #print(f1.shape)
-    #f1 =np.where(np.is_nan(f1), np.zeros_like(f1), f1)
-    return f1
+def iou_loss(y_true,y_pred):
+    return 1 - iou(y_true,y_pred)
 
 def iou(y_true,y_pred,epsilon=1e-6):
-    axes = (1,2)
-    inter = np.sum(y_pred * y_true,axes)
-    #print(inter.shape)
-    union = np.sum(y_true + y_pred - y_pred*y_true, axes)       
-    #print(union.shape)
-    temp = inter*1.0/(union+epsilon)    
+    axes = tuple(range(1, len(y_pred.shape))) 
+   
+    inter = K.sum(y_pred * y_true, axes)
+    union = K.sum(y_true + y_pred - y_pred*y_true, axes)       
+    temp = (inter*1.0+epsilon)/(union+epsilon)    
+    #return K.mean(temp) # average over classes and batch
     return temp
-'''
-
 
 class Metrics:
-    #class for calculation of all metrics for each image, so as to make more elegant and save effort   
-    #batchwise => not a mean value, calculated across batch
+    # class for calculation of all metrics for each image 
+    # batchwise: calculate across batch
+    # average: calc for each image, average across batch
 
     def __init__(self,y_true,y_pred):
        self.y_true = y_true
