@@ -116,6 +116,35 @@ def adjust_brightness(image):
     return out
 
 
+def plot_sample(X, y, preds, binary_preds, ix=None):
+    # For quick comparisons - requires folder 'output'
+    if ix is None:
+        ix = random.randint(0, len(X))
+    #plot
+    has_mask = y[ix].max() > 0
+    
+    fig, ax = plt.subplots(1, 4, figsize=(20, 10))
+    ax[0].imshow(X[ix])
+    if has_mask:
+        ax[0].contour(y[ix].squeeze(), colors='k', levels=[0.5])
+    ax[0].set_title('Input with output overlay')
+
+    ax[1].imshow(y[ix].squeeze())
+    ax[1].set_title('Mask')
+
+    ax[2].imshow(preds[ix].squeeze(), vmin=0, vmax=1)
+    if has_mask:
+        ax[2].contour(y[ix].squeeze(), colors='k', levels=[0.5])
+    ax[2].set_title('Prediction')
+    
+    ax[3].imshow(binary_preds[ix].squeeze(), vmin=0, vmax=1)
+    if has_mask:
+        ax[3].contour(y[ix].squeeze(), colors='k', levels=[0.5])
+    ax[3].set_title('Prediction binary')
+    plt.savefig("output\{}.png".format(ix),bbox_inches='tight')
+    plt.close()
+
+
 # useful functions (not used)
 def Histogram(frame):
     image = cv2.cvtColor(frame, cv2.COLOR_BGR2YUV)
