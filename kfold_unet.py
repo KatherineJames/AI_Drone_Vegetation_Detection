@@ -1,6 +1,5 @@
 import argparse
 import os
-import random
 
 import cv2
 import matplotlib.pyplot as plt
@@ -19,7 +18,7 @@ from keras.preprocessing.image import ImageDataGenerator
 from sklearn.model_selection import KFold, train_test_split
 
 #from helpers import *
-from helpers import weighted_BCE, focal_loss, alpha_focal_loss, soft_dice_loss, iou_loss
+from helpers import adjust_brightness, weighted_BCE, focal_loss, alpha_focal_loss, soft_dice_loss, iou_loss, Metrics
 plt.style.use("ggplot")
 
 ###########
@@ -48,74 +47,6 @@ plt.style.use("ggplot")
 
 ###########
 
-#   Arguments
-ap = argparse.ArgumentParser()
-ap.add_argument("-l", "--loss", type=str, default="w_bce")
-ap.add_argument("-b", "--bright", type=bool, default=True)
-ap.add_argument("-g", "--gamma", type=float, default=0)
-args = vars(ap.parse_args())
-#https://www.depends-on-the-definition.com/unet-keras-segmenting-images/ (has MIT license)
-
-#   Set some parameters
-im_width = 512
-im_height = 512
-border = 5
-path_train = 'unet_data_new\\'
-path_test = 'unet_data_new\\test\\'
-#------------------------------------------
-def Histogram(frame):
-    image = cv2.cvtColor(frame, cv2.COLOR_BGR2YUV)
-    # equalize the histogram of the Y channel
-    image[:,:,0] = cv2.equalizeHist(image[:,:,0])    
-    image = cv2.cvtColor(image, cv2.COLOR_YUV2BGR)    
-    return image
-
-def adjust_brightness(image):    
-    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    hsv[:,:,2]=hsv[:,:,2]*random.randrange(30,100,1)/100 #changed from 3 10 to 30 100
-    out = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)  
-    return out
-
-# Get and resize train images and masks
-def get_data(path, load_masks=True):  
-    ids = os.listdir(path + "images") 
-    idsmasks  = os.listdir(path + "masks")  
-    l = len(ids)
-    l = 20 #<----------------------------------------------------------------
-    X = np.zeros((l, im_height, im_width, 3), dtype=np.float32)
-   
-    if load_masks:
-        y = np.zeros((l, im_height, im_width, 1), dtype=np.float32)        
-    print('Getting and resizing images ... ')
-    for i in range(l):  
-        
-        image = cv2.imread(path + "images\\" + ids[i])      
-        x_img = cv2.resize(image,(im_height, im_width))
-                    
-        
-        if load_masks:               
-            mask = cv2.imread(path + 'masks\\' + idsmasks[i],0)
-            mask = cv2.resize(mask,(im_height, im_width))
-            ret,mask = cv2.threshold(mask,127,255,cv2.THRESH_BINARY) #thresh to fix any px that arent quite 1 or 0 after resize
-            mask = mask.reshape((im_height, im_width,1))
-
-        X[i] = x_img.squeeze() / 255
-       
-        if load_masks:
-            y[i] = mask / 255
-    print('Done!')
-    if load_masks:
-        return X, y
-    else:
-        return X
-
-#Train -------
-X, y = get_data(path_train, load_masks=True)
-kfold = KFold(n_splits=3, shuffle=True, random_state=42) #<----------------------------------------------------------------
-fold = 0
-overall_metrics = [[],[],[],[],[],[],[],[],[],[],[]]
-names = ["precision","recall","F1","Dice","IOU","Accuracy","av_precision","av_recall","av_F1","av_Dice","av_IOU"]
-#------------
 
 def conv2d_block(input_tensor, n_filters, kernel_size=3, batchnorm=True):
     # first layer
@@ -205,6 +136,65 @@ def plot_sample(X, y, preds, binary_preds, ix=None):
     plt.savefig("output\{}.png".format(ix),bbox_inches='tight')
     plt.close()
 
+def get_data(path, load_masks=True):  
+    ids = os.listdir(path + "images") 
+    idsmasks  = os.listdir(path + "masks")  
+    l = len(ids)
+     
+    X = np.zeros((l, im_height, im_width, 3), dtype=np.float32)
+   
+    if load_masks:
+        y = np.zeros((l, im_height, im_width, 1), dtype=np.float32)        
+    print('Getting and resizing images ... ')
+    for i in range(l):  
+        
+        image = cv2.imread(path + "images\\" + ids[i])      
+        x_img = cv2.resize(image,(im_height, im_width))
+                    
+        
+        if load_masks:               
+            mask = cv2.imread(path + 'masks\\' + idsmasks[i],0)
+            mask = cv2.resize(mask,(im_height, im_width))
+            ret,mask = cv2.threshold(mask,127,255,cv2.THRESH_BINARY) #thresh to fix any px that arent quite 1 or 0 after resize
+            mask = mask.reshape((im_height, im_width,1))
+
+        X[i] = x_img.squeeze() / 255
+       
+        if load_masks:
+            y[i] = mask / 255
+    print('Done!')
+    if load_masks:
+        return X, y
+    else:
+        return X
+
+
+#   Arguments
+ap = argparse.ArgumentParser()
+ap.add_argument("-l", "--loss", type=str, default="w_bce")
+ap.add_argument("-b", "--bright", type=bool, default=True)
+ap.add_argument("-g", "--gamma", type=float, default=0)
+args = vars(ap.parse_args())
+
+
+#   Set some parameters
+im_width = 512
+im_height = 512
+border = 5
+path_train = 'unet_data_new\\'
+path_test = 'unet_data_new\\test\\'
+#------------------------------------------
+
+
+
+#Train -------
+X, y = get_data(path_train, load_masks=True)
+kfold = KFold(n_splits=10, shuffle=True, random_state=42) #<----------------------------------------------------------------
+fold = 0
+overall_metrics = [[],[],[],[],[],[],[],[],[],[],[]]
+names = ["precision","recall","F1","Dice","IOU","Accuracy","av_precision","av_recall","av_F1","av_Dice","av_IOU"]
+#------------
+
 LOSS = {
     "binary_crossentropy":"binary_crossentropy",
     "w_bce": weighted_BCE(w=[0.08,0.92]),       #these values set for this dataset's training set
@@ -288,7 +278,7 @@ for train_indices, val_indices in kfold.split(X, y):
         ModelCheckpoint('kfold\\output\\model-hakea{}.h5'.format(fold), verbose=1, save_best_only=True, save_weights_only=True)
     ]
    
-    results = model.fit_generator(generator(), steps_per_epoch=(len(X_train) // bs), epochs=2, callbacks=callbacks,
+    results = model.fit_generator(generator(), steps_per_epoch=(len(X_train) // bs), epochs=2000, callbacks=callbacks,
                                 validation_data=(X_valid, y_valid)) #<----------------------------------------------------------------
 
     plt.figure(figsize=(8, 8))
