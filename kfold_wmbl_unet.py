@@ -50,7 +50,7 @@ def get_data(path, load_masks=True):
     l = len(ids)   
     if(l%2 !=0):
         l=l-1
-    l=6
+    
     X = np.zeros((l, im_height, im_width, 3), dtype=np.float32)
    
     if load_masks:
