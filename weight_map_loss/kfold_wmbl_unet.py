@@ -17,7 +17,6 @@ from keras.optimizers import SGD
 from keras.preprocessing.image import ImageDataGenerator
 from sklearn.model_selection import KFold, train_test_split
 
-#from helpers import *
 from helpers import adjust_brightness, Metrics, cw_map_loss, generate_class_weighted_maps, generate_weight_maps
 plt.style.use("ggplot")
 

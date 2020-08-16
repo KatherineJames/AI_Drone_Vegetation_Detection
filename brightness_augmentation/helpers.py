@@ -52,6 +52,7 @@ def Histogram(frame):
     image = cv2.cvtColor(image, cv2.COLOR_YUV2BGR)    
     return image
 
+
 def weighted_BCE(w):
     #BINARY CROSS ENTROPY WEIGHTED. EXPECTS W = [W0,W1] WHERE W0 IS BACKGROUND CLASS
  
@@ -119,6 +120,7 @@ def iou(y_true,y_pred,epsilon=1e-6):
     temp = (inter*1.0+epsilon)/(union+epsilon)    
     #return K.mean(temp) # average over classes and batch
     return temp
+
 
 class Metrics:
     # class for calculation of all metrics for each image 
