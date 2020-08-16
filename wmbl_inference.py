@@ -24,33 +24,39 @@ from helpers import *
 
 plt.style.use("ggplot")
 
-
 ###########
-#K.James 2018
+# K.James 2019
 #
-#Trains a U-Net model 
-# Arguments:
+# Trains a U-Net model using for inference 
+# This code used for MSc thesis and paper in various configurations.
+# For paper: this script used for WBCE and WBCE with brightness augmentation
+#            use -l= "w_bce" and toggle -b between False and True 
+# Use -s = "inf" to train inference model and then -s="test" to evaluate against unseen test set
+
+# Arguments: 
+# -s : state (train/inf/test)
+# -w : weight map weights
+# -t : weight map edge thickness
+#
 # Images in paths: path_train = 'unet_data_new\\' and  path_test = 'unet_data_new\\test\\'
-# Expects images to be in 'images' folder and corresponding masks to be in 'masks' folder within this directory
+# Expects images to be in 'images' folder and corresponding masks to be in 'masks' folder within each of these paths
+# Please create folder structure \output for the outputs.
 #
-#References: 
+# References: 
 # U-Net: O. Ronneberger, P. Fischer, and T.Brox, "U-Net: Convolutional netowrks for biomedical image segmentation," 
 # in International Conference on Meidcal image computing and computer-assisted intervention. 
 # Springer, 2015, pp.234-241
-# Acknowledgements: This code is expanded from the tutorial at:  https://www.depends-on-the-definition.com/unet-keras-segmenting-images/ (has MIT license).
+#
+# Acknowledgements: U-Net implementation based on:  https://www.depends-on-the-definition.com/unet-keras-segmenting-images/ (has MIT license)
 
 ###########
 
-#turn off GPU
-#os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"   
-#os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
-#Args for mode. Options: train, test, train final model for inference (inf)
 ap = argparse.ArgumentParser()
-ap.add_argument("-s", "--state", type=str, default="train")
-ap.add_argument("-w", "--weights", type=str, default="1,0.5")
-ap.add_argument("-t", "--thick", type=int, default=1)
+ap.add_argument("-s", "--state", type=str, default="inf")
+ap.add_argument("-w", "--weights", type=str, default="2,0.5")
+ap.add_argument("-t", "--thick", type=int, default=5)
 args = vars(ap.parse_args())
+
 weights =list(map(float,args["weights"].split(',')))
 
 # Set some parameters
@@ -64,87 +70,62 @@ L = weights[1] #edge
 t = args["thick"]
 print(U,L,t)
 
+
+def verify():
+    # Verify weights all =1 gives same as BCE 
+    '''
+    from keras.objectives import binary_crossentropy
+    loss = K.mean(binary_crossentropy(K.variable(y_train),K.variable(y_train*0.6))).eval(session=K.get_session())
+    print(y_train.shape)
+    y_true =   np.stack((y_train,w_train),axis=0)
+    y_pred =   np.stack((y_train*0.6,w_train),axis=0)
+    loss_map=ronneberg(K.variable(y_true),K.variable(y_pred)).eval(session=K.get_session())
+    print('SHAPE',y_pred.shape)
+    #np.testing.assert_almost_equal(loss_weighted,loss)
+    #print('OK test1')
+    print("BCE",loss)
+    print("weightmap",loss_map)#,loss)
+    exit()''' 
+    '''
+    MODEL INPUT [(None, 512, 512, 3), (None, 512, 512, 1)]
+    MODEL OUTPUT [(None, 512, 512, 1), (None, 512, 512, 1)]
+    GTRUTH (2, 10, 512, 512, 1)
+    PRED (2, 10, 512, 512, 1)
+    Length 10: 
+    BCE 0.039709575
+    weightmap 0.039709594'''
 #------------------------------------------
-
-
-def adjust_brightness(image):
-    #cv2.imshow("i",image)
-    #cv2.waitKey(0)
-    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    hsv[:,:,2]=hsv[:,:,2]*random.randrange(30,100,1)/100 #changed from 3 10 to 30 100
-    out = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-    #cv2.imshow("i",out)
-    #cv2.waitKey(0)
-    return out
-
-def Histogram(frame):
-    image = cv2.cvtColor(frame, cv2.COLOR_BGR2YUV)
-    # equalize the histogram of the Y channel
-    image[:,:,0] = cv2.equalizeHist(image[:,:,0])    
-    image = cv2.cvtColor(image, cv2.COLOR_YUV2BGR)    
-    return image
-
 # Get and resize images and masks
-def get_data(path, train=True):
-    #ids = next(os.walk(path + "images"))[2]
+def get_data(path, load_masks=True):  
     ids = os.listdir(path + "images") 
-    if(train):
-        idsmasks  = os.listdir(path + "masks")  
-    l = len(ids)
-    l=84
-    #print(l)
-    #exit()
-    
-    X = np.zeros((l, im_height, im_width, 3), dtype=np.float32) 
+    idsmasks  = os.listdir(path + "masks")  
+    l = len(ids)   
+    if(l%2 !=0):
+        l=l-1
+    l=8
+    X = np.zeros((l, im_height, im_width, 3), dtype=np.float32)
    
-    if train:
-        y = np.zeros((l, im_height, im_width, 1), dtype=np.float32)    
-        
+    if load_masks:
+        y = np.zeros((l, im_height, im_width, 1), dtype=np.float32)        
     print('Getting and resizing images ... ')
-    for i in range(l):
+    for i in range(l):  
         
-        # Load images        
-        image = cv2.imread(path + "images\\" + ids[i])
-                
-        #image = Histogram(np.array(img))       
-        #CROP IMAGE to 1:1 aspect ratio        
-        #x_img = image[:,500:3500]     
-        #cv2.imwrite("data1\{}.jpg".format(i),x_img)
-        #continue
-        
+        image = cv2.imread(path + "images\\" + ids[i])      
         x_img = cv2.resize(image,(im_height, im_width))
+                    
         
-             
-        # Load masks
-        if train:
-            #mask = img_to_array(load_img(path + 'masks\\' + idsmasks[i], grayscale=True))    
-            mask = cv2.imread(path + 'masks\\' + idsmasks[i],0)       
-            
-            #mask= mask[:,500:3500]     #Crop to same aspect ratio as image
-            
+        if load_masks:               
+            mask = cv2.imread(path + 'masks\\' + idsmasks[i],0)
             mask = cv2.resize(mask,(im_height, im_width))
-            
             ret,mask = cv2.threshold(mask,127,255,cv2.THRESH_BINARY) #thresh to fix any px that arent quite 1 or 0 after resize
-           
-            '''nzero = np.transpose(np.nonzero(mask))
-           
-            for j in nzero:
-                if mask[j[0]][j[1]]/255 != 1:
-                    print(mask[j[0]][j[1]]/255)'''        
-            
-
-            
-            
             mask = mask.reshape((im_height, im_width,1))
 
-        
-        
         X[i] = x_img.squeeze() / 255
        
-        if train:
+        if load_masks:
             y[i] = mask / 255
     print('Done!')
-    if train:
+    if load_masks:
         return X, y
     else:
         return X
@@ -164,7 +145,7 @@ def conv2d_block(input_tensor, n_filters, kernel_size=3, batchnorm=True):
     x = Activation("relu")(x)
     return x
 
-def get_unet(n_filters=16, dropout=0.5, batchnorm=True):
+def get_weightmap_unet(n_filters=16, dropout=0.5, batchnorm=True):
     
     input_img = Input((im_height, im_width, 3), name='img')
     weight_map_ip = Input((im_height, im_width,1),name='map')   
@@ -219,7 +200,7 @@ def get_unet(n_filters=16, dropout=0.5, batchnorm=True):
     
     return model
 
-def get_unet2(input_img, n_filters=16, dropout=0.5, batchnorm=True):
+def get_unet(input_img, n_filters=16, dropout=0.5, batchnorm=True):
     # contracting path
     c1 = conv2d_block(input_img, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm)
     p1 = MaxPooling2D((2, 2)) (c1) #stride defaults to poolsize, ie, 2.
@@ -280,54 +261,37 @@ def get_unet2(input_img, n_filters=16, dropout=0.5, batchnorm=True):
     #model = Model(inputs=[input_img], outputs=[weighted_softmax])
     return model
 
-def plot_sample(X, y, preds, binary_preds, ix=None):
-    if ix is None:
-        ix = random.randint(0, len(X))     
-    
-    #plot
-    has_mask = y[ix].max() > 0
-    
-    fig, ax = plt.subplots(1, 4, figsize=(20, 10))
-    ax[0].imshow(X[ix])
-    if has_mask:
-        ax[0].contour(y[ix].squeeze(), colors='k', levels=[0.5])
-    ax[0].set_title('Input with output overlay')
-
-    ax[1].imshow(y[ix].squeeze())
-    ax[1].set_title('Mask')
-
-    ax[2].imshow(preds[ix].squeeze(), vmin=0, vmax=1)
-    if has_mask:
-        ax[2].contour(y[ix].squeeze(), colors='k', levels=[0.5])
-    ax[2].set_title('Prediction')
-    
-    ax[3].imshow(binary_preds[ix].squeeze(), vmin=0, vmax=1)
-    if has_mask:
-        ax[3].contour(y[ix].squeeze(), colors='k', levels=[0.5])
-    ax[3].set_title('Prediction binary')
-    plt.savefig("output\{}.png".format(ix),bbox_inches='tight')
-    plt.close()
-# -------------------------------------------------
+#------------------------------------------------
 if(args["state"]=="train"):
     #Train -------
-    X, y = get_data(path_train, train=True)
+    print("TRAIN")
+    X, y = get_data(path_train, load_masks=True)
     X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.15, random_state=42,shuffle=True) # Split train and valid
     print(len(X_train))
+
+    print("SHAPE", y_train.shape,y_valid.shape)
     
-    w_train = generate_weight_maps(y_train,[U,L],t)
-    w_train = np.expand_dims(w_train,3)     
+    w_train = generate_weight_maps(y_train,[U,L],t)    
+    w_train = np.expand_dims(w_train,3)  
+
+    #w_valid = generate_class_weighted_maps(y_valid,[U,F,L],t) 
+    w_valid = generate_weight_maps(y_valid,[U,L],t) 
+    w_valid = np.expand_dims(w_valid,3) 
+   
+     
 elif(args["state"]=="test"):   
-    X_valid, y_valid = get_data(path_test, train=True)
+    print("TEST")
+    X_valid, y_valid = get_data(path_test, load_masks=True)
 elif(args["state"]=="inf"):
     #Inference#------- Use all of dataset 1 to train final model for inference
-    X_train, y_train = get_data(path_train, train=True)    
+    print("INF")
+    X_train, y_train = get_data(path_train, load_masks=True)    
     
     w_train = generate_weight_maps(y_train,[U,L],t)
     w_train = np.expand_dims(w_train,3)
 else:
-    print("CMD -l options: train,test,inf (train for inference)")
-    print("CMD -l options: train,test,inf (train for inference)")
-    y_train = np.array([[[0.5,2,3,4],[2,5,8,2],[0.5,2,3,4],[2,5,8,2]],[[1,1,1,2],[2,4,6,7],[0.5,2,3,4],[2,5,8,2]]])
+    print("CMD -l options: train,test,inf (train for inference)")    
+    '''y_train = np.array([[[0.5,2,3,4],[2,5,8,2],[0.5,2,3,4],[2,5,8,2]],[[1,1,1,2],[2,4,6,7],[0.5,2,3,4],[2,5,8,2]]])
     w_train = np.array([[[1.0,1,1,1],[1,1,1,1],[1.0,1,1,1],[1,1,1,1]],[[1,1,1,1],[1,1,1,1],[1.0,1,1,1],[1,1,1,1]]])
     print(y_train.shape)
     
@@ -347,40 +311,12 @@ else:
     print("WBCE",wbce)
     print("weightmap",loss_map)
     print("weightmap class balanced",loss_map_bal)#,loss)
-    exit()
-
-
-#Verify weights all =1 gives same as BCE 
-
-'''
-from keras.objectives import binary_crossentropy
-loss = K.mean(binary_crossentropy(K.variable(y_train),K.variable(y_train*0.6))).eval(session=K.get_session())
-print(y_train.shape)
-y_true =   np.stack((y_train,w_train),axis=0)
-y_pred =   np.stack((y_train*0.6,w_train),axis=0)
-loss_map=ronneberg(K.variable(y_true),K.variable(y_pred)).eval(session=K.get_session())
-print('SHAPE',y_pred.shape)
-#np.testing.assert_almost_equal(loss_weighted,loss)
-#print('OK test1')
-print("BCE",loss)
-print("weightmap",loss_map)#,loss)
-exit()''' 
-'''
-MODEL INPUT [(None, 512, 512, 3), (None, 512, 512, 1)]
-MODEL OUTPUT [(None, 512, 512, 1), (None, 512, 512, 1)]
-GTRUTH (2, 10, 512, 512, 1)
-PRED (2, 10, 512, 512, 1)
-Length 10: 
-BCE 0.039709575
-weightmap 0.039709594'''
-#-----------Comment out for testing
-
-#Datagen
+    exit()'''
 
 
 if(args["state"] == "train" or args["state"]=="inf"):
 
-    model = get_unet( n_filters=16, dropout=0.05, batchnorm=True)
+    model = get_weightmap_unet( n_filters=16, dropout=0.05, batchnorm=True)
     sgd = SGD(lr=0.01, decay=1e-6, momentum=0.99, nesterov=True)
     model.compile(optimizer=sgd, loss=cw_map_loss) 
 
@@ -429,8 +365,8 @@ if(args["state"] == "train" or args["state"]=="inf"):
             
             #Masks            
             yi[yi < 0.5] = 0
-            yi[yi >= 0.5] = 1          
-           
+            yi[yi >= 0.5] = 1              
+            
             yield ([X1i, X2i],[yi,X2i])
    
     callbacks = [
@@ -441,18 +377,13 @@ if(args["state"] == "train" or args["state"]=="inf"):
 
     if(args["state"]=="inf"):           
         print("STEPS PER EPOCH: ",len(X_train) // bs) #how many batches we have       
-        results = model.fit_generator(generator(), steps_per_epoch=(len(X_train) // bs), epochs=150, callbacks=callbacks) 
+        results = model.fit_generator(generator(), steps_per_epoch=(len(X_train) // bs), epochs=2, callbacks=callbacks) #set epochs=150
         model.save_weights('model-hakea.h5')
         exit()
-    else:    
-        w_valid = generate_weight_maps(y_valid,[U,L],t) 
-        #calculate weight map on the fly #KATHERINE - THIS IS REALLY IMPORTANT. SHOULD THIS BE WITH OR WITHOUT CW?
-        #If it goes through the loss fn, it should be without. If not should add inverse class here.
-        #have a look at all codes and see if this is inverse_class_weightmap or not.
-        w_valid = np.expand_dims(w_train,3) 
+    else:                   
         a =  [X_valid,w_valid]
         b =  [y_valid,w_valid]     
-        results = model.fit_generator(generator(), steps_per_epoch=(len(X_train) // bs), epochs=150, callbacks=callbacks, validation_data=(a,b))
+        results = model.fit_generator(generator(), steps_per_epoch=(len(X_train) // bs), epochs=2, callbacks=callbacks, validation_data=(a,b))
 
 if(args["state"] == "train"):
     plt.figure(figsize=(8, 8))
@@ -470,15 +401,15 @@ if(args["state"] == "train"):
 #---------
 # Evaluate model on unseen test set
 #---------
+print("Evaluate on unseen test set")
 input_img = Input((im_height, im_width, 3), name='img')
-inference = get_unet2(input_img, n_filters=16, dropout=0.05, batchnorm=True)
+inference = get_unet(input_img, n_filters=16, dropout=0.05, batchnorm=True)
 sgd = SGD(lr=0.01, decay=1e-6, momentum=0.99, nesterov=True)
 inference.compile(optimizer=sgd, loss="binary_crossentropy", metrics=['accuracy']) 
-#note: bce is simply used to compile a the model now that it has the right shape
+#note: bce is simply used to compile the model, now that it has the right shape
 #ie. remove layers involved in loss function
 
 inference.load_weights('model-hakea.h5')
-
 
 #Info for Android Application
 #print([node.op.name for node in model.inputs])

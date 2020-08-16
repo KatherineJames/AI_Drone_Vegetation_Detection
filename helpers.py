@@ -11,7 +11,22 @@ im_height = 512
 
 
 
-#helper functions needed in both unet.py and kfold_unet.py
+#------WEIGHT MAPS AND MAP LOSS----#
+
+def cw_map_loss(groundtruth,predicted): #weight map based loss with class weighting
+    y_true,weights = groundtruth[0],groundtruth[1]
+    y_pred=predicted[0] #can only handle even number of images
+
+    class_imbalance = [0.92,0.08]
+    y_true_inv = 1 - y_true
+    class_weights = y_true_inv*class_imbalance[1] + y_true*class_imbalance[0]
+
+
+    y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon()) 
+    loss = -y_true * K.log(y_pred) - (1.0 -y_true) * K.log(1.0 - y_pred) 
+    
+    loss = loss * class_weights * weights
+    return K.mean(loss)
 
 def generate_weight_maps(y,w,t):
     #Use this function to pre-compute weight maps to downweight edges of objects when 
@@ -41,93 +56,46 @@ def generate_weight_maps(y,w,t):
  
     return np.array(weight_maps)
 
-def cw_map_loss(groundtruth,predicted): #weight map based loss with class weighting
-    y_true,weights = groundtruth[0],groundtruth[1]
-    y_pred=predicted[0] #can only handle even number of images
+def generate_class_weighted_maps(y,w,t):
+    #Use this function to pre-compute weight maps to downweight edges of objects when 
+    #the annotation of the mask at the edge of objects has uncertainty.
+    #This version also accounts for class imbalance in the precomputed map. 
 
-    class_imbalance = [0.92,0.08]
-    y_true_inv = 1 - y_true
-    class_weights = y_true_inv*class_imbalance[1] + y_true*class_imbalance[0]
-
-
-    y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon()) 
-    loss = -y_true * K.log(y_pred) - (1.0 -y_true) * K.log(1.0 - y_pred) 
-    
-    loss = loss * class_weights * weights
-    return K.mean(loss)
-
-#-------------------------------
-def weighted_BCE_MAP(weights):
-    
-    weights = K.variable(weights)     
-    #weights = K.expand_dims(weights,3)
-    
-    def loss(y_true,y_pred):   
-            
-        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
-      
-        loss = -y_true * K.log(y_pred) - (1.0 -y_true) * K.log(1.0 - y_pred) #8,512,512,1
-        #loss = soft_dice_loss(y_true,y_pred)
-
-        print(loss.shape,weights.shape)
-        loss = loss * weights   
-        
-                
-        return K.mean(loss)
-    return loss 
-
-
-def class_weight_map(y,w,t):
-    #w is [Other,Edge weights] int array
+    #Parameters:
+    #y is binary mask [0:1]
+    #w is int array weightings: [Other,Target,Edge] 
     #t is int thickness
 
-    #mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
-    #ret, mask = cv2.threshold(mask, 127, 255, 0)
-    #cv2.imshow('mask',mask)
-    #cv2.waitKey(0)
-
-    weights = []
+    weight_maps = []
     for i in range(0,len(y)):
-        mask = np.uint8(y[i].reshape((im_height, im_width))*255)
-        
-        im2, contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        
-        canvas = np.ones(mask.shape)   
-
-        canvas = canvas * w[0] * 255    #set the majority of the weight matrix to reflect the non-edge part of the image
-        
-        edge = w[1] *255 #edge weight
-        #edge = 0
-        
-        cv2.drawContours(canvas, contours, -1 , (edge, edge, edge), -3) #-ve thickness means use a filled contour            
-        '''cv2.imshow('i',canvas)    
-        cv2.waitKey(0)    
-        print(canvas) 
-        exit()  '''
-        #canvas = ((1-canvas/255)+1)/2  
-        canvas = canvas/255
-        
-        #print(canvas)
-
-        #canvas = np.ones(mask.shape)   #for verifying BCE=WBCE if weights=1
-             
-        weights.append(canvas)
        
-    
-    return np.array(weights)
+        mask = np.uint8(y[i].squeeze()*255) #remove extra dimension and scale up to regular pixel range       
+        ret, mask = cv2.threshold(mask, 127, 255, 0)   #just in case
+        
+        canvas = np.ones(mask.shape)
+        canvas = canvas * w[0] * 255    #set the majority of the weight matrix to reflect the non-edge part of the image        
+        
+        target = w[1]*255 #target weight
+        cv2.drawContours(canvas, contours, -1 , (target, target, target),-1)
+
+        edge = w[2]*255 #edge weight     
+        contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)      
+        cv2.drawContours(canvas, contours, -1 , (edge, edge, edge),t)  
+                                     
+        canvas = canvas/255 # adjust to range [0:1]     
+                    
+        weight_maps.append(canvas)       
+ 
+    return np.array(weight_maps)
 
 
-
-
-# useful functions (not used)
+#------USEFUL FUNCTIONS----#
 def Histogram(frame):
     image = cv2.cvtColor(frame, cv2.COLOR_BGR2YUV)
     # equalize the histogram of the Y channel
     image[:,:,0] = cv2.equalizeHist(image[:,:,0])    
     image = cv2.cvtColor(image, cv2.COLOR_YUV2BGR)    
     return image
-
-#--------used in k-fold unet script
 
 def adjust_brightness(image):    
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
@@ -163,6 +131,8 @@ def plot_sample(X, y, preds, binary_preds, ix=None):
     plt.savefig("output\{}.png".format(ix),bbox_inches='tight')
     plt.close()
 
+
+#------LOSS FUNCTIONS----#
 def weighted_BCE(w):
     #BINARY CROSS ENTROPY WEIGHTED. EXPECTS W = [W0,W1] WHERE W0 IS BACKGROUND CLASS
  
@@ -230,6 +200,8 @@ def iou(y_true,y_pred,epsilon=1e-6):
     temp = (inter*1.0+epsilon)/(union+epsilon)    
     #return K.mean(temp) # average over classes and batch
     return temp
+
+#------EVALUATION----#
 
 class Metrics:
     # class for calculation of all metrics for each image 
