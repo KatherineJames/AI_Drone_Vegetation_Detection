@@ -47,9 +47,7 @@ plt.style.use("ggplot")
 def get_data(path, load_masks=True):  
     ids = os.listdir(path + "images") 
     idsmasks  = os.listdir(path + "masks")  
-    l = len(ids)   
-    if(l%2 !=0):
-        l=l-1
+    l = len(ids)       
     
     X = np.zeros((l, im_height, im_width, 3), dtype=np.float32)
    
@@ -189,24 +187,10 @@ def get_unet(input_img, n_filters=16, dropout=0.5, batchnorm=True):
     u9 = Dropout(dropout)(u9)
     c9 = conv2d_block(u9, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm)
     
-    outputs = Conv2D(1, (1, 1), activation='sigmoid') (c9)
-
-    #weighted stuff
-    #Add a few non trainable layers to mimic the computation of the crossentropy
-    # loss, so that the actual loss function just has to peform the
-    # aggregation.
-    '''normalize_activation = Lambda(lambda x: x / tf.reduce_sum(x, len(x.get_shape()) - 1, True))(outputs)
-    clip_activation = Lambda(lambda x: tf.clip_by_value(x, _epsilon, 1. - _epsilon))(normalize_activation)
-    log_activation = Lambda(lambda x: K.log(x))(clip_activation)
-
-    from keras import layers as L
-    # Add a new input to serve as the source for the weight maps
-    weight_map_ip = Input(shape=(im_height, im_width))
-    weighted_softmax =L.multiply([log_activation, weight_map_ip])'''
-    
+    outputs = Conv2D(1, (1, 1), activation='sigmoid') (c9)    
 
     model = Model(inputs=[input_img], outputs=[outputs])
-    #model = Model(inputs=[input_img], outputs=[weighted_softmax])
+  
     return model
 
 #   Arguments
@@ -241,7 +225,15 @@ names = ["precision","recall","F1","Dice","IOU","Accuracy","av_precision","av_re
 
 for train_indices, val_indices in kfold.split(X, y):
     fold+=1
-    print("\n \n Fold {}".format(fold))    
+    print("\n \n Fold {}".format(fold))  
+
+    
+    print(train_indices.shape,val_indices.shape)
+    if(len(train_indices)%2 !=0):
+        train_indices = train_indices[:-1]
+    if(len(val_indices)%2 !=0):
+        val_indices = val_indices[:-1]
+    print(train_indices.shape,val_indices.shape)
 
     X_train = X[train_indices]
     y_train = y[train_indices]
