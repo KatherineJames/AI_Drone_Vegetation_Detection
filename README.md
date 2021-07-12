@@ -1,7 +1,5 @@
 Code used for paper: 
-"Detecting plant species in the field with deep learning
-and drone technology" 
-(in press) Methods in Ecology and Evolution
+James, K, Bradshaw, K. Detecting plant species in the field with deep learning and drone technology. Methods in Ecology Evolution. 2020; 11: 1509– 1519. https://doi.org/10.1111/2041-210X.13473
 
 Please cite paper if you make use of this code.
 Dataset available on Zenodo.
